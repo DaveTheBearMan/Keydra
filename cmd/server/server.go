@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/google/gopacket"
-	"github.com/DaveTheBearMan/keydra/socket"
+	"github.com/DaveTheBearMan/Keydra/socket"
 	"golang.org/x/sys/unix"
 )
 
