@@ -1,4 +1,4 @@
-module keydra.dev/m
+module github.com/DaveTheBearMan/Keydra
 
 go 1.25.1
 
