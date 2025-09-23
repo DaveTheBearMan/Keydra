@@ -382,7 +382,7 @@ func GetOutwardIface(addr string) (byNameiface *net.Interface, ip net.IP) {
 //
 //	*NOTE* hostMAC and hostIP will end up being the MAC/IP of the gateway
 //			we are dealing with NAT. This will be handled by the C2 parsing
-func SendServerMessage(hostMAC net.HardwareAddr, srcIP net.IP) (message string) {
+func SendMessageClient(hostMAC net.HardwareAddr, srcIP net.IP) (message string) {
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.Fatal("Hostname not found...")
