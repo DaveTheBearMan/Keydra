@@ -389,8 +389,7 @@ func GenerateClientMessage(hostMAC net.HardwareAddr, srcIP net.IP, data string) 
 	}
 
 	message = "CLIENT:" + " " + hostname + " " + hostMAC.String() + " " + srcIP.String() + " "
-	bytesLength := length(message)
-	index := (508 - bytesLength - 1)
+	index := 508 - len(message) - 1
 	message = message + data[0, index] //  RFC 791 - RTFM
 
 	return message
