@@ -112,46 +112,74 @@ func GetRouterMAC() (net.HardwareAddr, error) {
 	return nil, errors.New("No gateway found")
 }
 
+func readPacket(fd int, buf []byte) (int, error) {
+	n, _, err := unix.Recvfrom(fd, buf, 0)
+	if err != nil {
+		if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EINTR) {
+			return 0, nil // transient, no data this time
+		}
+		return 0, fmt.Errorf("recvfrom fatal: %w", err)
+	}
+	return n, nil
+}
+
 // ServerReadPacket reads packets from a socket file descriptor (fd)
 //
 // fd  	--> file descriptor that relates to the socket created in main
 // vm 	--> BPF VM that contains the BPF Program
 //
 // Returns 	--> None
-func ServerReadPacket(fd int, vm *bpf.VM) gopacket.Packet {
+func ServerReadPacket(fd int, vm *bpf.VM) (gopacket.Packet, error) {
 
 	// Buffer for packet data that is read in
 	buf := make([]byte, 1500)
 
 	// Read in the packets
-	// num 		--> number of bytes
-	// sockaddr --> the sockaddr struct that the packet was read from
-	// err 		--> was there an error?
-	_, _, err := unix.Recvfrom(fd, buf, 0)
-
-	checkEr(err)
+	// Basically, read packet will check if we got any transient errors (things that dont matter, google the error codes)
+	// Then, it will return 0 if it was transient, or the error if it wasnt. Otherwise, itll
+	// return how much data was actually read by the server to prevent any segfaults
+	n, err := readPacket(fd, buf)
+	if err != nil {
+		return nil, err
+	}
+	if n == 0 {
+		return nil, nil // no data (transient error case)
+	}
+	data := buf[:n]
 
 	// Filter packet?
 	// numBytes	--> Number of bytes
 	// err	--> Error you say?
-	numBytes, err := vm.Run(buf)
-	checkEr(err)
+	numBytes, err := vm.Run(data)
+    if err != nil {
+        return nil, fmt.Errorf("bpf filter failed: %w", err)
+    }
 	if numBytes == 0 {
-		// Change "continue" to return for routine logic
-		return nil // 0 means that the packet should be dropped
-		// Here we are just "ignoring" the packet and moving on to the next one
+		return nil, nil // numBytes == 0 means filter rejected the packet
 	}
 
-	// Parse packet... hopefully
-	packet := gopacket.NewPacket(buf, layers.LayerTypeEthernet, gopacket.Default)
-	if udpLayer := packet.Layer(layers.LayerTypeUDP); udpLayer != nil {
+	// Parse only the bytes actually produced
+	packet := gopacket.NewPacket(data, layers.LayerTypeEthernet, gopacket.Default)
+
+	// Make sure we are actually operating on the UDP layer
+	if packet.Layer(layers.LayerTypeUDP) != nil {
 		// Make sure this is a packet from client
-		if strings.Contains(string(packet.ApplicationLayer().Payload()), "CLIENT:") {
-			return packet
+		app := packet.ApplicationLayer()
+		if app == nil {
+			// No payload at application layer means we should drop the packet.
+			return nil, nil
 		}
-		return nil
+		payload := string(app.Payload())
+
+		// Check for the flags we accept in the server
+		if strings.Contains(payload, "CLIENT") {
+			return packet, nil
+		} else if strings.Contains(payload, "HEARTBEAT") {
+			return packet, nil
+		}
 	}
-	return nil
+	// Default drop
+	return nil, nil
 }
 
 // ClientReadPacket reads packets from a socket file descriptor (fd)
@@ -166,33 +194,43 @@ func ClientReadPacket(fd int, vm *bpf.VM) (gopacket.Packet, bool) {
 	buf := make([]byte, 1500)
 
 	// Read in the packets
-	// num 		--> number of bytes
-	// sockaddr --> the sockaddr struct that the packet was read from
-	// err 		--> was there an error?
-	_, _, err := unix.Recvfrom(fd, buf, 0)
-
-	checkEr(err)
+	// Basically, read packet will check if we got any transient errors (things that dont matter, google the error codes)
+	// Then, it will return 0 if it was transient, or the error if it wasnt. Otherwise, itll
+	// return how much data was actually read by the server to prevent any segfaults
+	n, err := readPacket(fd, buf)
+	if err != nil {
+		// log and drop instead of returning an error
+		log.Printf("Client read error: %v", err)
+		return nil, false
+	}
+	if n == 0 {
+		log.Printf("Client recieved transient error")
+		return nil, false
+	}
+	data := buf[:n]
 
 	// Filter packet?
 	// numBytes	--> Number of bytes
-	// err	--> Error you say?
-	numBytes, err := vm.Run(buf)
+	// err	--> Error 
+	numBytes, err := vm.Run(data)
 	checkEr(err)
 	if numBytes == 0 {
-		// Change "continue" to return for routine logic
-		return nil, false // 0 means that the packet should be dropped
-		// Here we are just "ignoring" the packet and moving on to the next one
+		return nil, false // 0 means that the packet should be dropped becaulse filter rejected it
 	}
 
 	// Parse packet... hopefully
-	packet := gopacket.NewPacket(buf, layers.LayerTypeEthernet, gopacket.Default)
-	if udpLayer := packet.Layer(layers.LayerTypeUDP); udpLayer != nil {
+	packet := gopacket.NewPacket(data, layers.LayerTypeEthernet, gopacket.Default)
+	if packet.Layer(layers.LayerTypeUDP) != nil {
+		app := packet.ApplicationLayer()
+		if app == nil {
+			return nil, false
+		}
+		payload := string(app.Payload())
+
 		// Make sure this is my packet
-		if strings.Contains(string(packet.ApplicationLayer().Payload()), "COMMAND:") {
+		if strings.Contains(payload, "COMMAND") {
 			return packet, false
-		} else if strings.Contains(string(packet.ApplicationLayer().Payload()), "TARGET:") {
-			return packet, true
-		} else if strings.Contains(string(packet.ApplicationLayer().Payload()), "HEARTBEAT") {
+		} else if strings.Contains(payload, "TARGET") {
 			return packet, true
 		}
 		return nil, false
