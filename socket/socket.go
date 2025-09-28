@@ -380,6 +380,16 @@ func getOutboundIP(addr string) net.IP {
 	return localAddr.IP
 }
 
+func GetIpv4FromDns(ARecord string) (addr string) {
+    ips, _ := net.LookupIP(ARecord)
+    for _, ip := range ips {
+        if ipv4 := ip.To4(); ipv4 != nil {
+            return string(ipv4)
+        }
+    }
+	return ""
+}
+
 // GetOutwardIface determines the interface associated with
 // sending traffic out on the wire and returns a *net.Interface struct
 //
