@@ -388,8 +388,9 @@ func GenerateClientMessage(hostMAC net.HardwareAddr, srcIP net.IP, data string) 
 		log.Fatal("Hostname not found...")
 	}
 
-	message = "CLIENT:" + " " + hostname + " " + hostMAC.String() + " " + srcIP.String() + " "
-	message = message + data[:508] //  RFC 791 - RTFM
+	message = "CLIENT:" + " " + hostname + " " + hostMAC.String() + " " + srcIP.String() + " " + data
+	lastByte := min(len(message), 508) //  RFC 791 - RTFM
+	message = message[:lastByte]
 
 	return message
 }
