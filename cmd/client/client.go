@@ -108,7 +108,9 @@ func main() {
 	defer unix.Close(readfd)
 
 	// Get information that is needed for networking
-	iface, src := socket.GetOutwardIface("157.245.141.117:80")
+	controlAddr := socket.GetIpv4FromDns("digitalocean.keydra.dev")
+
+	iface, src := socket.GetOutwardIface(fmt.Sprintf("%s:80", controlAddr))
 	dstMAC, err := socket.GetRouterMAC()
 	if err != nil {
 		log.Fatal(err)

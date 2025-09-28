@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"regexp"
 
 	"github.com/google/gopacket"
 	"github.com/DaveTheBearMan/Keydra/socket"
@@ -35,17 +36,41 @@ type Host struct {
 	DstPort  int
 }
 
-// Write host
-func writeLog(streamKey string, event string, message string) {
+// Write Server Data
+func writeClientData(streamKey string, command string, hostname string, data string) {
 	// Builds arguments for redis datastream
 	args := &redis.XAddArgs{
         Stream: streamKey,
         MaxLen: 500,
         Approx: true,
         Values: map[string]interface{}{
-            "event":   event,
-            "message": message,
-            "time":   time.Now().Format(time.RFC3339),
+            "command":  command,
+            "host": 	hostname,
+			"data":		data,
+            "time":   	time.Now().Format(time.RFC3339),
+        },
+    }
+
+	// Send to redis datastream 
+	_, err := rdb.XAdd(ctx, args).Result()
+    if err != nil {
+        log.Fatalf("XAdd failed: %v", err)
+    } else if verbose {
+		fmt.Println(streamKey + " " + event + " " + message)
+	}
+}
+
+// Write host
+func writeLog(streamKey string, event string, message string, data string) {
+	// Builds arguments for redis datastream
+	args := &redis.XAddArgs{
+        Stream: streamKey,
+        MaxLen: 500,
+        Approx: true,
+        Values: map[string]interface{}{
+            "event":   	event,
+            "message": 	message,
+            "time":   	time.Now().Format(time.RFC3339),
         },
     }
 
@@ -122,8 +147,19 @@ func serverProcessPacket(packet gopacket.Packet, listen chan Host) {
 		DstPort:  dstport,
 	}
 
+	clientLogName := fmt.Sprintf("Client-%s", newHost.Hostname)
 	writeLog("Server", "TRAFFIC", fmt.Sprintf("Recieved From: %s (%s)", newHost.Hostname, newHost.IP))
-	writeLog("Client", "JOIN", newHost.IP.String())
+
+	if payload[4] == "JOIN" {
+		writeLog(clientLogName, "JOIN", newHost.IP.String())
+	} else if payload[0] == "HEARTBEAT" {
+		writeLog(clientLogName, "HEARTBEAT", newHost.IP.String())
+	} else {
+		payloadData := strings.join(payload[5:], " ") // Reconstruct just the data
+		cmdIdSeqRegex, _ := regexp.Compile("(?<=\<CMD)(.*?)(?=END\>)") // Command Id Sequence Regex (Catch John from <CMDJohnEND>)
+		cmdId := cmdIdSeqRegex.MatchString(payloadData)
+		writeClientData(clientLogName, cmdId, newHost.Hostname, payloadData)
+	}
 
 	// Write host to channel
 	listen <- newHost
@@ -195,6 +231,8 @@ func main() {
 		for _, stream := range streams {
 			for _, msg := range stream.Messages {
 				fmt.Printf("ID: %s, Values: %v\n", msg.ID, msg.Values)
+
+				msg.Values.
 			}
 		}
 	}
