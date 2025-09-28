@@ -381,13 +381,26 @@ func getOutboundIP(addr string) net.IP {
 }
 
 func GetIpv4FromDns(ARecord string) (addr string) {
-    ips, _ := net.LookupIP(ARecord)
-    for _, ip := range ips {
-        if ipv4 := ip.To4(); ipv4 != nil {
-            return string(ipv4)
-        }
-    }
-	return ""
+    // Define domain name
+	host := "digitalocean.keydra.dev"
+
+	ip, _ := net.LookupIP(host)
+	StrIP := ""
+
+	// Returns an array of IP addresses associated with an A Record,
+	// Takes the first one (because we assume no DNS load balancing)
+	// And converts the bytes (it literally has the ip address bytes (9d for 157 for example))
+	// Then returns the final string
+	if len(ip) > 0 {
+		for i := 0; i < len(ip[0]); i++ {
+			StrIP += strconv.Itoa((int(ip[0][i])))
+			if i < 3 {
+					StrIP += "."
+			}
+		}
+	}
+	
+	return StrIP
 }
 
 // GetOutwardIface determines the interface associated with
