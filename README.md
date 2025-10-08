@@ -5,7 +5,7 @@
 
 # Keydra & Aegis
 
-Keydra is gonna be the raw sockets tool. Aegis is gonna be something. Who knows. Cool logos though
+Aegis is gonna be the raw sockets tool. Keydra is gonna be something. Who knows. Cool logos though
 
 Raw Socket was written by https://github.com/oneNutW0nder/CatTails 
 I am adding some features and trying to fix some of the problems, but really, all the hard work was done by him
