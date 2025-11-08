@@ -4,9 +4,9 @@
 </p>
 
 # Keydra & Aegis
-Aegis is gonna be the raw sockets tool. Keydra is the command server which uses Aegis on the backend to connect to clients.
+Keydra is gonna be the raw sockets tool. Aegis is the command server which uses Keydra on the backend to connect to clients.
 
-## Keydra
+## Aegis
 Right now, Keydra (on the server side) is going to be comprised of:
 - A central API server for end users (God willing, containerized)
 - A central Redis server (containerized)
@@ -21,7 +21,7 @@ Per end user, the Keydra CLI (right now this is also on the server..) will:
 - Save variables to be referenced in aliased commands? Could be cool
 - Event driven logic (Host connects, run some kind of persistence script? Possibly build in P2P c2 functionality with raw socket tool to alert who is available thru the new host?)
 
-## Aegis
+## Keydra
 Raw Socket was written by https://github.com/oneNutW0nder/CatTails 
 I am adding some features and trying to fix some of the problems, but really, all the hard work was done by him
 
