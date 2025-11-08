@@ -7,12 +7,12 @@
 Keydra is gonna be the raw sockets tool. Aegis is the command server which uses Keydra on the backend to connect to clients.
 
 ## Aegis
-Right now, Keydra (on the server side) is going to be comprised of:
+Right now, Aegis (on the server side) is going to be comprised of:
 - A central API server for end users (God willing, containerized)
 - A central Redis server (containerized)
 - A central server for handling the raw sockets
 
-Per end user, the Keydra CLI (right now this is also on the server..) will:
+Per end user, the Aegis CLI (right now this is also on the server..) will:
 - Review logs (Command execution history, responses, client connection list, etc)
 - Push commands to redis so the raw sockets server can read and send to clients
 - Save scripts to run against hosts, and review things which have previously run (this is the first bullet but why im doing it)
