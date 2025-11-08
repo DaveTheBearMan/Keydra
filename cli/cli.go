@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/spf13/cobra"
@@ -24,6 +25,9 @@ var (
 	rdb *redis.Client
 	ctx = context.Background()
 )
+
+// user id (Just random right now..)
+var UserId = 1
 
 // Root command
 var rootCmd = &cobra.Command{
@@ -68,12 +72,10 @@ var logCmd = &cobra.Command{
 	Short: "Operations for Keydra logs",
 }
 
-var readCmd = &cobra.Command{
-	Use:   "read [channel] [n]",
-	Short: "Read a log channel",
-	Long:  "Reads the last N messages from a given Redis log channel (stream).",
-	Args:  cobra.ExactArgs(2),
-	Run:   readLog,
+var readLogCmd = &cobra.Command{
+	Use:   "read",
+	Short: "Read from database",
+	Long:  "Read operations for the keydra cli for logs",
 }
 
 var readLogChannelCmd = &cobra.Command{
@@ -81,7 +83,12 @@ var readLogChannelCmd = &cobra.Command{
 	Short: "Read a log channel",
 	Long:  "Reads the last N messages from a given Redis log channel (stream).",
 	Args:  cobra.ExactArgs(2),
-	// Run:   readLogChannel,
+	Run:   readLogChannelFunc,
+}
+
+// Helper function
+func getFileNameFromString(fileName string) (result string) {
+	return fileName[strings.LastIndex(fileName, "/")+1:] // Returns either everything after the final /, or, the whole string
 }
 
 // Push a command onto the payload
@@ -90,7 +97,8 @@ func pushPayloadScript(cmd *cobra.Command, args []string) {
 
 	// Check if file exists, if not open vim to create it
 	if _, err := os.Stat(filePath); errors.Is(err, os.ErrNotExist) {
-		vimCmd := exec.Command("vim", fmt.Sprintf("/tmp/%s", filePath))
+		filePath = fmt.Sprintf("/tmp/%s", filePath)
+		vimCmd := exec.Command("vim", filePath)
 		vimCmd.Stdin = os.Stdin
 		vimCmd.Stdout = os.Stdout
 		vimCmd.Stderr = os.Stderr
@@ -102,8 +110,10 @@ func pushPayloadScript(cmd *cobra.Command, args []string) {
 		}
 	}
 
+	// Get file name
+
 	// Grab data from file
-	fileContent, err := os.ReadFile(fmt.Sprintf("/tmp/%s", filePath))
+	fileContent, err := os.ReadFile(filePath)
 	if err != nil {
 		fmt.Printf("Error reading file: %v\n", err)
 	}
@@ -119,13 +129,18 @@ func pushPayloadScript(cmd *cobra.Command, args []string) {
 	if err != nil {
 		fmt.Printf("Error marshaling data: %v\n", err)
 	}
-	rdb.LPush(context.Background(), fmt.Sprintf("keydra:script_payload:%s", filePath), marshaledData)
+
+	// I chose a hash because I want to be able to assign data to the user, including scripts, keybinds, etc without having a stack that was pushed or popped from
+	hashTable := fmt.Sprintf("user:%02d", UserId)
+	fieldName := fmt.Sprintf("script:%s", getFileNameFromString(filePath))
+
+	rdb.HSet(context.Background(), hashTable, fieldName, marshaledData) // If someone pushes an overlapping script, this will over write the value
 }
 
-// // Push a script onto the payload
-// func pushPayloadCommand(cmd *cobra.Command, args []string) {
-// 	command := args[0]
-// }
+// Push a script onto the payload
+func pushPayloadCommandFunc(cmd *cobra.Command, args []string) {
+
+}
 
 // Connect to Redis before running commands
 func connectToServerRDB(cmd *cobra.Command, args []string) {
@@ -135,7 +150,7 @@ func connectToServerRDB(cmd *cobra.Command, args []string) {
 }
 
 // Reads and prints logs
-func readLog(cmd *cobra.Command, args []string) {
+func readLogChannelFunc(cmd *cobra.Command, args []string) {
 	channel := args[0]
 	nStr := args[1]
 
@@ -164,10 +179,12 @@ func readLog(cmd *cobra.Command, args []string) {
 
 func init() {
 	// Log Commands
+	readLogCmd.AddCommand(readLogChannelCmd)
 	logCmd.AddCommand(readLogCmd)
 
 	// Push Payload Commands
-	payloadPushSubCmd.AddCommand(pushPayloadCmd)
+	pushPayloadScriptSubCmd.Flags().Bool("save", false, "Save script (if a new one is created)")
+	payloadPushSubCmd.AddCommand(pushPayloadCommandSubCmd)
 	payloadPushSubCmd.AddCommand(pushPayloadScriptSubCmd)
 
 	// Payload Root Commands
@@ -179,6 +196,7 @@ func init() {
 }
 
 func main() {
+	defer os.RemoveAll(".keydra/tmp")
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
