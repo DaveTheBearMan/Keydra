@@ -27,6 +27,8 @@ var (
 )
 
 // user id (Just random right now..)
+// At some stage in my life, I will expand this so that many users can download the CLI, authenticate to a central server, and then push commands and all this logic will happen on the server
+// rather than in the CLI itself. However, we are not there yet, but we can start planning the redis commands now.
 var UserId = 1
 
 // Root command
@@ -55,7 +57,7 @@ var pushPayloadCommandSubCmd = &cobra.Command{
 	Short: "Push a command onto the payload",
 	Long:  "Pushes a command onto the Keydra command payload in Redis.",
 	Args:  cobra.ExactArgs(1),
-	// Run:   pushPayload,
+	Run:   pushPayloadCommandFunc,
 }
 
 var pushPayloadScriptSubCmd = &cobra.Command{
@@ -91,9 +93,23 @@ func getFileNameFromString(fileName string) (result string) {
 	return fileName[strings.LastIndex(fileName, "/")+1:] // Returns either everything after the final /, or, the whole string
 }
 
-// Push a command onto the payload
-func pushPayloadScript(cmd *cobra.Command, args []string) {
-	filePath := args[0]
+// LPush to the command log
+func LPushUserCommandLog(command string) {
+	rdbEntry := fmt.Sprintf("cmdLog:user:%02d", UserId)
+	rdb.LPush(context.Background(), rdbEntry, command)
+}
+
+// Push a command to the command stack itself
+func LPushUserCommand(command string) {
+	rdb.LPush(context.Background(), "commandstack", command)
+	LPushUserCommandLog(command)
+}
+
+// Add a users script to the redis database so it can be referenced in commands
+func addUserScriptToRdb(filePath string) {
+	// Userdata
+	hashTable := fmt.Sprintf("user:%02d", UserId)
+	fieldName := fmt.Sprintf("script:%s", getFileNameFromString(filePath))
 
 	// Check if file exists, if not open vim to create it
 	if _, err := os.Stat(filePath); errors.Is(err, os.ErrNotExist) {
@@ -109,8 +125,6 @@ func pushPayloadScript(cmd *cobra.Command, args []string) {
 			return
 		}
 	}
-
-	// Get file name
 
 	// Grab data from file
 	fileContent, err := os.ReadFile(filePath)
@@ -130,16 +144,40 @@ func pushPayloadScript(cmd *cobra.Command, args []string) {
 		fmt.Printf("Error marshaling data: %v\n", err)
 	}
 
-	// I chose a hash because I want to be able to assign data to the user, including scripts, keybinds, etc without having a stack that was pushed or popped from
-	hashTable := fmt.Sprintf("user:%02d", UserId)
-	fieldName := fmt.Sprintf("script:%s", getFileNameFromString(filePath))
-
 	rdb.HSet(context.Background(), hashTable, fieldName, marshaledData) // If someone pushes an overlapping script, this will over write the value
 }
 
-// Push a script onto the payload
-func pushPayloadCommandFunc(cmd *cobra.Command, args []string) {
+// Push a command onto the payload
+func pushPayloadScript(cmd *cobra.Command, args []string) {
+	// I chose a hash because I want to be able to assign data to the user, including scripts, keybinds, etc without having a stack that was pushed or popped from
+	filePath := args[0]
+	fileName := getFileNameFromString(filePath)
+	hashTable := fmt.Sprintf("user:%02d", UserId)
+	fieldName := fmt.Sprintf("script:%s", fileName)
 
+	// Check if the scripts already been loaded into memory
+	exists, HExistsError := rdb.HExists(context.Background(), hashTable, fieldName).Result()
+	if HExistsError != nil {
+		fmt.Printf("Error in rdb HExists command: %v\n", HExistsError)
+	}
+
+	// If the script does not yet exist in the users scripts, then we need to add it before pushing the reference to it into the stack of commands
+	if !(exists) {
+		addUserScriptToRdb(filePath)
+	}
+
+	// Push the users command onto a stack
+	// "commandstack" is where commands are stored
+	scriptPath := fmt.Sprintf("./%02d/%s", UserId, fileName)
+	LPushUserCommand(scriptPath)
+}
+
+// Push a command (Basically just a wrapper)
+func pushPayloadCommandFunc(cmd *cobra.Command, args []string) {
+	// Command
+	command := args[0]
+
+	LPushUserCommand(command)
 }
 
 // Connect to Redis before running commands
