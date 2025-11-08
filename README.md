@@ -6,6 +6,8 @@
 # Keydra & Aegis
 Keydra is gonna be the raw sockets tool. Aegis is the command server which uses Keydra on the backend to connect to clients.
 
+Considering making the C2 a deep state C2 (very long call back times to avoid detection, provide TTNCB in packet to client each time the server communicates) (Time To Next Call Back). Basically NTP guess work
+
 ## Aegis
 Right now, Aegis (on the server side) is going to be comprised of:
 - A central API server for end users (God willing, containerized)
