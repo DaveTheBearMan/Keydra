@@ -1,0 +1,85 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+
+	"github.com/spf13/cobra"
+)
+
+//region CLI
+var payloadCmd = &cobra.Command{
+	Use:   "payload",
+	Short: "Operations for Keydra payloads",
+}
+
+var payloadPushSubCmd = &cobra.Command{
+	Use:   "push",
+	Short: "Operations for pushing to Keydra command payload",
+}
+
+var pushPayloadCommandSubCmd = &cobra.Command{
+	Use:   "command [command]",
+	Short: "Push a command onto the payload",
+	Long:  "Pushes a command onto the Keydra command payload in Redis.",
+	Args:  cobra.ExactArgs(1),
+	Run:   pushPayloadCommandFunc,
+}
+
+var pushPayloadScriptSubCmd = &cobra.Command{
+	Use:   "script [filepath]",
+	Short: "Push a script onto the payload",
+	Long:  "Pushes a script onto the Keydra command payload in Redis.",
+	Args:  cobra.ExactArgs(1),
+	Run:   pushPayloadScript,
+}
+
+// region CLI CMD
+// Push a command onto the payload
+func pushPayloadScript(cmd *cobra.Command, args []string) {
+	// I chose a hash because I want to be able to assign data to the user, including scripts, keybinds, etc without having a stack that was pushed or popped from
+	filePath := args[0]
+	fileName := getFileNameFromString(filePath)
+	hashTable := fmt.Sprintf("user:%02d", UserId)
+	fieldName := fmt.Sprintf("script:%s", fileName)
+
+	// Check if the scripts already been loaded into memory
+	exists, HExistsError := rdb.HExists(context.Background(), hashTable, fieldName).Result()
+	if HExistsError != nil {
+		fmt.Printf("Error in rdb HExists command: %v\n", HExistsError)
+		os.Exit(1)
+	}
+
+	// If the script does not yet exist in the users scripts, then we need to add it before pushing the reference to it into the stack of commands
+	if !(exists) {
+		addUserScriptToRdb(filePath)
+	}
+
+	// Push the users command onto a stack
+	// "commandstack" is where commands are stored
+	scriptPath := fmt.Sprintf("./aegis/%02d/%s", UserId, fileName)
+	LPushUserCommand(scriptPath)
+}
+
+// Push a command (Basically just a wrapper)
+func pushPayloadCommandFunc(cmd *cobra.Command, args []string) {
+	// Command
+	command := args[0]
+
+	LPushUserCommand(command)
+}
+
+// Final Attach
+func AttachPayloadCommands(rootCmd *cobra.Command) {
+	// Push Payload Commands
+	pushPayloadScriptSubCmd.Flags().Bool("save", false, "Save script (if a new one is created)")
+	payloadPushSubCmd.AddCommand(pushPayloadCommandSubCmd)
+	payloadPushSubCmd.AddCommand(pushPayloadScriptSubCmd)
+
+	// Payload Root Commands
+	payloadCmd.AddCommand(payloadPushSubCmd)
+
+	// Attach to main
+	rootCmd.AddCommand(logRoot)
+}
