@@ -8,10 +8,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
-//region CLI
-var payloadCmd = &cobra.Command{
+// region CLI
+var payloadRoot = &cobra.Command{
 	Use:   "payload",
 	Short: "Operations for Keydra payloads",
+}
+
+var payloadHistory = &cobra.Command{
+	Use:   "history",
+	Short: "Read from your users command history",
+	Long:  "Shows all of the scripts and commands you have queued up in a payload",
+	Run:   GetUserCommandHistory,
+}
+
+var payloadShow = &cobra.Command{
+	Use:   "show",
+	Short: "See which commands are in the queue for the payload",
+	Long:  "Shows the currently queued payload in the redis database for your user",
 }
 
 var payloadPushSubCmd = &cobra.Command{
@@ -70,16 +83,58 @@ func pushPayloadCommandFunc(cmd *cobra.Command, args []string) {
 	LPushUserCommand(command)
 }
 
+func GetUserCommandHistory(cmd *cobra.Command, args []string) {
+	rdbEntry := fmt.Sprintf("cmdLog:user:%02d", UserId)
+
+	// Only argument is the number of logs you want, -1 for all
+	count, strconvErr := cmd.Flags().GetInt64("count")
+	if strconvErr != nil {
+		fmt.Printf("Error converting from ascii to int: %v", strconvErr)
+		os.Exit(1)
+	}
+
+	historyLength, LLenErr := rdb.LLen(context.Background(), rdbEntry).Result()
+	if LLenErr != nil {
+		fmt.Printf("Failed to get length of list '%02d': %v\n", UserId, LLenErr)
+		os.Exit(1)
+	}
+
+	var startIndex int64
+	if count > historyLength {
+		startIndex = 0
+	} else {
+		startIndex = historyLength - count
+	}
+
+	historyLog, LRangeErr := rdb.LRange(context.Background(), rdbEntry, startIndex, historyLength).Result()
+	if LRangeErr != nil {
+		fmt.Printf("Failed to read user log '%02d': %v\n", UserId, LRangeErr)
+		os.Exit(1)
+	}
+
+	fmt.Printf("%-5s %s\n", "INDEX", "COMMAND")
+	for i := range historyLog {
+		entry := historyLog[i]
+
+		fmt.Printf("%-5d %s\n", i+int(startIndex), entry)
+	}
+}
+
 // Final Attach
 func AttachPayloadCommands(rootCmd *cobra.Command) {
 	// Push Payload Commands
 	pushPayloadScriptSubCmd.Flags().Bool("save", false, "Save script (if a new one is created)")
+	payloadHistory.Flags().Int64("count", 10, "How many commands to show (-1 for all)")
+
+	// Attach to payload push
 	payloadPushSubCmd.AddCommand(pushPayloadCommandSubCmd)
 	payloadPushSubCmd.AddCommand(pushPayloadScriptSubCmd)
 
 	// Payload Root Commands
-	payloadCmd.AddCommand(payloadPushSubCmd)
+	payloadRoot.AddCommand(payloadHistory)
+	payloadRoot.AddCommand(payloadShow)
+	payloadRoot.AddCommand(payloadPushSubCmd)
 
 	// Attach to main
-	rootCmd.AddCommand(logRoot)
+	rootCmd.AddCommand(payloadRoot)
 }

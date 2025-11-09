@@ -20,7 +20,7 @@ func getFileNameFromString(fileName string) (result string) {
 // LPush to the command log
 func LPushUserCommandLog(command string) {
 	rdbEntry := fmt.Sprintf("cmdLog:user:%02d", UserId)
-	rdb.LPush(context.Background(), rdbEntry, command)
+	rdb.RPush(context.Background(), rdbEntry, command) // Push to the back so we can get an accurate count of command history
 }
 
 // Push a command to the command stack itself
