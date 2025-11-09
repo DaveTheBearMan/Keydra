@@ -23,13 +23,19 @@ var payloadHistory = &cobra.Command{
 
 var payloadShow = &cobra.Command{
 	Use:   "show",
-	Short: "See which commands are in the queue for the payload",
-	Long:  "Shows the currently queued payload in the redis database for your user",
+	Short: "See information about your payload",
+	Long:  "Allows you to review the current command buffer to clients",
 }
 
-var payloadPushSubCmd = &cobra.Command{
-	Use:   "push",
-	Short: "Operations for pushing to Keydra command payload",
+// TODO:
+// Add a script command "payload script [name]"
+// which will either:
+//   - Open the script in vim (if it exists), or
+//   - Open vim to write a new script
+var payloadScriptRoot = &cobra.Command{
+	Use:   "script [scriptname]",
+	Short: "Handle interactions with scripts you have written for payloads",
+	Long:  "Opens a vim session to the name of the script you provide, if it is a file path it will open the file, otherwise, it will load from the redis database.",
 }
 
 var pushPayloadCommandSubCmd = &cobra.Command{
