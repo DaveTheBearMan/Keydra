@@ -4,6 +4,7 @@ go 1.25.1
 
 require (
 	github.com/google/gopacket v1.1.19
+	github.com/google/uuid v1.6.0
 	github.com/redis/go-redis/v9 v9.14.0
 	github.com/spf13/cobra v1.10.1
 	golang.org/x/net v0.38.0

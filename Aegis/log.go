@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
@@ -39,7 +40,7 @@ func readLogChannelFunc(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	vals, err := rdb.XRevRangeN(ctx, channel, "+", "-", n).Result()
+	vals, err := rdb.XRevRangeN(context.Background(), channel, "+", "-", n).Result()
 	if err != nil {
 		fmt.Printf("Failed to read log channel '%s': %v\n", channel, err)
 		os.Exit(1)

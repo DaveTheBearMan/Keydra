@@ -27,23 +27,18 @@ var payloadShow = &cobra.Command{
 	Long:  "Allows you to review the current command buffer to clients",
 }
 
-// TODO:
-// Add a script command "payload script [name]"
-// which will either:
-//   - Open the script in vim (if it exists), or
-//   - Open vim to write a new script
-var payloadScriptRoot = &cobra.Command{
-	Use:   "script [scriptname]",
-	Short: "Handle interactions with scripts you have written for payloads",
-	Long:  "Opens a vim session to the name of the script you provide, if it is a file path it will open the file, otherwise, it will load from the redis database.",
-}
-
 var pushPayloadCommandSubCmd = &cobra.Command{
 	Use:   "command [command]",
 	Short: "Push a command onto the payload",
 	Long:  "Pushes a command onto the Keydra command payload in Redis.",
 	Args:  cobra.ExactArgs(1),
 	Run:   pushPayloadCommandFunc,
+}
+
+var payloadPushSubCmd = &cobra.Command{
+	Use:   "push",
+	Short: "Push a command or script onto the payload",
+	Long:  "Pushes a command or script onto the Keydra command payload in Redis.",
 }
 
 var pushPayloadScriptSubCmd = &cobra.Command{
@@ -60,8 +55,8 @@ func pushPayloadScript(cmd *cobra.Command, args []string) {
 	// I chose a hash because I want to be able to assign data to the user, including scripts, keybinds, etc without having a stack that was pushed or popped from
 	filePath := args[0]
 	fileName := getFileNameFromString(filePath)
-	hashTable := fmt.Sprintf("user:%02d", UserId)
-	fieldName := fmt.Sprintf("script:%s", fileName)
+	hashTable := fmt.Sprintf("user:%02d:scripts", UserId)
+	fieldName := fmt.Sprintf("path:%s", filePath)
 
 	// Check if the scripts already been loaded into memory
 	exists, HExistsError := rdb.HExists(context.Background(), hashTable, fieldName).Result()
@@ -72,7 +67,10 @@ func pushPayloadScript(cmd *cobra.Command, args []string) {
 
 	// If the script does not yet exist in the users scripts, then we need to add it before pushing the reference to it into the stack of commands
 	if !(exists) {
-		addUserScriptToRdb(filePath)
+		fileCleanupError := addUserScriptToRdb(fileName, filePath)
+		if fileCleanupError != nil {
+			fmt.Printf("Failed to remove file: %v", fileCleanupError)
+		}
 	}
 
 	// Push the users command onto a stack
@@ -118,11 +116,11 @@ func GetUserCommandHistory(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	fmt.Printf("%-5s %s\n", "INDEX", "COMMAND")
+	fmt.Printf("%-8s %s\n", "INDEX", "COMMAND")
 	for i := range historyLog {
 		entry := historyLog[i]
 
-		fmt.Printf("%-5d %s\n", i+int(startIndex), entry)
+		fmt.Printf("%-8d %s\n", i+int(startIndex), entry)
 	}
 }
 

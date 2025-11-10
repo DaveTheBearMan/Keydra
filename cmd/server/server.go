@@ -19,7 +19,6 @@ import (
 // Global to store staged command
 var stagedCmd string
 var rdb *redis.Client
-var ctx = context.Background()
 
 // Glabal to store target info
 var targetIP string
@@ -52,7 +51,7 @@ func writeClientData(streamKey string, command string, hostname string, data str
 	}
 
 	// Send to redis datastream
-	_, err := rdb.XAdd(ctx, args).Result()
+	_, err := rdb.XAdd(context.Background(), args).Result()
 	if err != nil {
 		log.Fatalf("XAdd failed: %v", err)
 	} else if verbose {
@@ -75,7 +74,7 @@ func writeLog(streamKey string, event string, message string) {
 	}
 
 	// Send to redis datastream
-	_, err := rdb.XAdd(ctx, args).Result()
+	_, err := rdb.XAdd(context.Background(), args).Result()
 	if err != nil {
 		log.Fatalf("XAdd failed: %v", err)
 	} else if verbose {
@@ -234,7 +233,7 @@ func main() {
 	go initializeRawSocketServer()
 
 	for {
-		streams, err := rdb.XRead(ctx, &redis.XReadArgs{
+		streams, err := rdb.XRead(context.Background(), &redis.XReadArgs{
 			Streams: []string{"Server", "$"},
 			Block:   0,
 			Count:   1,

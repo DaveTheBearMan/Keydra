@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 
@@ -9,15 +8,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Types
-type PayloadScript struct {
-	FilePath    string `json:"file_path"`
-	EncodedData string `json:"encoded_data"`
-}
-
 var (
 	rdb    *redis.Client
-	ctx    = context.Background()
 	UserId = 1
 )
 
@@ -40,6 +32,7 @@ The goal is to bypass host level firewall rules through the use of eBPF and enca
 
 // region Init Module
 func loadCobraCliConfigs() {
+	AttachScriptCommands(rootCmd)
 	AttachPayloadCommands(rootCmd)
 	AttachLogCommands(rootCmd)
 }
