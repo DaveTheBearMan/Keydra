@@ -124,6 +124,7 @@ func PrintScript(cmd *cobra.Command, args []string) {
 	fmt.Printf("%s\n", decodedString)
 }
 
+// TODO: When you push an existing script into redis, you can't edit it with this command, its just stuck as is.
 func EditScript(cmd *cobra.Command, args []string) {
 	filePath := args[0]
 
