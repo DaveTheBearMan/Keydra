@@ -26,10 +26,9 @@ const (
 
 	// TLV Headers
 	DiffieHelmanKey TLVKey = 0
-	Command TLVKey = 1
-	ClientData TLVKey = 2
-	NewProxy TLVKey = 3
-	
+	Command         TLVKey = 1
+	ClientData      TLVKey = 2
+	NewProxy        TLVKey = 3
 )
 
 type KCPHeader struct {
